@@ -1,6 +1,0 @@
-{
-	"mocha.enabled": true,
-	"eslint.workingDirectories": [
-		"./node_modules/aegir/src/config/"
-	]
-}

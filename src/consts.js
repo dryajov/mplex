@@ -1,6 +1,9 @@
 exports.type = {
   NEW: 0,
-  MESSAGE: 1,
-  CLOSE: 3,
-  RESET: 5
+  OUT_MESSAGE: 1,
+  IN_MESSAGE: 2,
+  OUT_CLOSE: 3,
+  IN_CLOSE: 4,
+  OUT_RESET: 5,
+  IN_RESET: 6
 }
