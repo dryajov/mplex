@@ -21,6 +21,7 @@ class Channel extends EE {
     this._initiator = initiator
     this._endedRemote = false // remote stream ended
     this._endedLocal = false // local stream ended
+    this._piped = false
 
     this._log = (name, data) => {
       log({
@@ -37,31 +38,39 @@ class Channel extends EE {
     this._log('new channel', this._name)
 
     this._msgs = pushable((err) => {
-      if (err) { log.err(err) }
-      setImmediate(() => this.emit('end', err))
+      this._log('source closed', err)
+      this.endChan((err) => {
+        if (err) { setImmediate(() => this.emit('error', err)) }
+      })
     })
 
-    this.source = this._msgs
+    this._source = this._msgs
 
     this.sink = (read) => {
       const next = (end, data) => {
         this._log('sink', data)
 
         // stream already ended
-        if (this._endedLocal && this._endedRemote) { return }
+        if (this._endedLocal) { return }
 
         this._endedLocal = end || false
 
         // source ended, close the stream
         if (end === true) {
           this.endChan((err) => {
-            if (err) { log.err(err) }
+            if (err) {
+              log.err(err)
+              setImmediate(() => this.emit('error', err))
+            }
           })
           return
         }
 
         // source errored, reset stream
-        if (end) { return this.emit('error', err) }
+        if (end) {
+          // return this.emit('error', err)
+          return
+        }
 
         // just send
         return this.sendMsg(data, (err) => {
@@ -71,6 +80,10 @@ class Channel extends EE {
 
       read(null, next)
     }
+  }
+
+  get source () {
+    return this._source
   }
 
   get id () {
@@ -88,30 +101,32 @@ class Channel extends EE {
   push (data) {
     this._log('push', data)
     this._msgs.push(data)
-    // this._drain()
   }
 
-  end (err) {
-    this._log('end')
-    this._msgs.end(err)
+  // close for reading
+  close (err) {
+    this._log('close', err)
+    this.emit('close', err)
     this._endedRemote = err || true
+    this._msgs.end(err)
   }
 
   openChan (cb) {
     this._log('openChan')
 
+    this.open = true // avoid duplicate open msgs
     utils.encodeMsg(this._id,
       consts.NEW,
       this._name,
       (err, data) => {
         if (err) {
           log.err(err)
+          this.open = false
           return cb(err)
         }
 
         this._plex.push(data)
-        this.open = true
-        cb()
+        cb(null, this)
       })
   }
 

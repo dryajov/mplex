@@ -9,21 +9,25 @@ const consts = require('./consts')
 const utils = require('./utils')
 
 class Mplex extends EE {
-  constructor (initiator) {
+  constructor (initiator, onChan) {
     super()
     this._initiator = initiator || false
-    this._chanId = this._initiator ? 0 : 1
+    this._chanId = 0
     this._channels = {}
     this._chandata = pushable((err) => {
-      setImmediate(() => this.emit('close'))
+      this.destroy(err || new Error('Underlying stream has been closed'))
     })
+
+    if (onChan) {
+      this.on('stream', (chan) => onChan(chan, chan.id))
+    }
 
     this.source = this._chandata
 
     this.sink = (read) => {
       const next = (end, data) => {
         if (end === true) { return }
-        if (end) { return this.emit('error', end) }
+        if (end) { return this.destroy(end) }
         return this._handle(data, (err) => {
           read(err, next)
         })
@@ -33,19 +37,25 @@ class Mplex extends EE {
     }
   }
 
-  end () {
+  destroy (err) {
     // propagate close to channels
     Object
       .keys(this._channels)
       .forEach((id) => {
-        this._channels[id].end(end)
+        const chan = this._channels[id]
+        chan.close(err)
         delete this._channels[id]
       })
+
+    if (err) {
+      return setImmediate(() => this.emit('error', err))
+    }
+
+    this.emit('close')
   }
 
   push (data) {
     this._chandata.push(data)
-    // this._drain()
   }
 
   nextChanId (initiator) {
@@ -55,7 +65,7 @@ class Mplex extends EE {
     return this._chanId
   }
 
-  newStream (name) {
+  createStream (name) {
     return this._newStream(null, this._initiator, false, name)
   }
 
@@ -78,7 +88,7 @@ class Mplex extends EE {
       initiator,
       open || false)
 
-    chan.once('end', () => {
+    chan.once('close', () => {
       delete this._channels[id]
     })
 
@@ -93,12 +103,6 @@ class Mplex extends EE {
       const data = _data[1]
       switch (type) {
         case consts.type.NEW: {
-          if (this._initiator && (id & 1) !== 1) {
-            return this.emit(
-              'error',
-              new Error(`stream initiator can't have even ids`))
-          }
-
           const chan = this._newStream(id, this._initiator, true, data.toString())
           setImmediate(() => this.emit('stream', chan))
           return cb()
@@ -117,7 +121,7 @@ class Mplex extends EE {
         case consts.type.IN_CLOSE: {
           const chan = this._channels[id]
           if (chan) {
-            chan.end()
+            chan.close()
           }
           return cb()
         }

@@ -48,7 +48,7 @@ describe('channel', () => {
   })
 
   it('should be readable', (done) => {
-    const plex = new Mplex()
+    const plex = new Mplex(true)
 
     plex.on('stream', (stream) => {
       pull(
@@ -78,7 +78,7 @@ describe('channel', () => {
     })
   })
 
-  it('initiator should be able to send data', (done) => {
+  it('initiator should be able to send data between two multiplexers', (done) => {
     const p = pair()
 
     const plex1 = new Mplex(true)
@@ -86,12 +86,6 @@ describe('channel', () => {
 
     pull(plex1, p[0], plex1)
     pull(plex2, p[1], plex2)
-
-    const stream = plex1._newStream(plex1.nextChanId(true), true, 'stream 1')
-    pull(
-      pull.values([Buffer.from('hello from plex1!!')]),
-      stream
-    )
 
     plex2.on('stream', (stream) => {
       pull(
@@ -103,6 +97,12 @@ describe('channel', () => {
         })
       )
     })
+
+    const stream = plex1._newStream(plex1.nextChanId(true), true, 'stream 1')
+    pull(
+      pull.values([Buffer.from('hello from plex1!!')]),
+      stream
+    )
   })
 
   it('receiver should be able to send data', (done) => {
@@ -177,9 +177,9 @@ describe('channel', () => {
     pull(plex1, p[0], plex1)
     pull(plex2, p[1], plex2)
 
-    const chan1 = plex1.newStream('stream 1')
+    const chan1 = plex1.createStream('stream 1')
 
-    plex2.once('stream', (stream) => {
+    plex2.on('stream', (stream) => {
       pull(
         stream,
         stream
@@ -189,9 +189,6 @@ describe('channel', () => {
     pull(
       pull.values([Buffer.from('hello')]),
       chan1,
-      pull.through((data) => {
-        console.dir(data)
-      }),
       pull.collect((err, data) => {
         expect(err).to.not.exist()
         expect(data[0]).to.deep.eql(Buffer.from('hello'))
