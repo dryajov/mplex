@@ -8,8 +8,8 @@ const EE = require('events')
 
 const debug = require('debug')
 
-const log = debug('pull-mplex')
-log.err = debug('pull-mplex:err')
+const log = debug('pull-plex')
+log.err = debug('pull-plex:err')
 
 class Channel extends EE {
   constructor (id, name, plex, initiator, open) {
@@ -21,15 +21,16 @@ class Channel extends EE {
     this._initiator = initiator
     this._endedRemote = false // remote stream ended
     this._endedLocal = false // local stream ended
-    this._piped = false
+    this._reset = false
 
     this._log = (name, data) => {
       log({
+        src: 'channel.js',
         op: name,
         channel: this._name,
         id: this._id,
-        localEnded: this._endedLocal,
-        remoteEnded: this._endedRemote,
+        endedLocal: this._endedLocal,
+        endedRemote: this._endedRemote,
         initiator: this._initiator,
         data: data || ''
       })
@@ -39,6 +40,7 @@ class Channel extends EE {
 
     this._msgs = pushable((err) => {
       this._log('source closed', err)
+      if (this._reset) { return } // don't try closing the channel on reset
       this.endChan((err) => {
         if (err) { setImmediate(() => this.emit('error', err)) }
       })
@@ -67,8 +69,11 @@ class Channel extends EE {
         }
 
         // source errored, reset stream
-        if (end) {
-          // return this.emit('error', err)
+        if (end || this._reset) {
+          this.resetChan(() => {
+            setImmediate(() => this.emit('error', end || this._reset))
+            this.reset()
+          })
           return
         }
 
@@ -98,6 +103,10 @@ class Channel extends EE {
     this._open = open
   }
 
+  get name () {
+    return this._name
+  }
+
   push (data) {
     this._log('push', data)
     this._msgs.push(data)
@@ -109,6 +118,12 @@ class Channel extends EE {
     this.emit('close', err)
     this._endedRemote = err || true
     this._msgs.end(err)
+  }
+
+  reset (err) {
+    this._log('reset', err)
+    this._reset = err || new Error('channel reset!')
+    this.close(this._reset)
   }
 
   openChan (cb) {
@@ -171,6 +186,28 @@ class Channel extends EE {
       this._initiator
         ? consts.type.OUT_CLOSE
         : consts.type.IN_CLOSE,
+      '',
+      (err, data) => {
+        if (err) {
+          log.err(err)
+          return cb(err)
+        }
+        this._plex.push(data)
+        cb()
+      })
+  }
+
+  resetChan (cb) {
+    this._log('endChan')
+
+    if (!this.open) {
+      return cb()
+    }
+
+    utils.encodeMsg(this._id,
+      this._initiator
+        ? consts.type.OUT_RESET
+        : consts.type.IN_RESET,
       '',
       (err, data) => {
         if (err) {
